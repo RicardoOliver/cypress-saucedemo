@@ -1,0 +1,30 @@
+{
+  "name": "cypress-saucedemo_web",
+  "version": "1.0.0",
+  "description": "Teste web utilizando o cypress",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx cypress open",
+    "cy:e2e:firefox": "cypress run --e2e --browser firefox"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RicardoOliver/cypress-saucedemo.git"
+  },
+   "keywords": [
+    "E2E",
+    "QA",
+    "Cypress",
+    "Automation"
+  ],
+  "author": "Ricardo Oliveira",
+  "license": "MIT",
+  "devDependencies": {
+    "cypress": "^12.6.0",
+    "cypress-mochawesome-reporter": "^3.2.3"
+  },
+  "bugs": {
+    "url": "https://github.com/RicardoOliver/cypress-saucedemo/issues"
+  },
+  "homepage": "https://github.com/RicardoOliver/cypress-saucedemo#readme"
+}
