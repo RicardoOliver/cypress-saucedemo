@@ -17,7 +17,7 @@
 
    Com esses passos, você terá configurado o Cypress em seu projeto e estará pronto para começar a escrever seus testes.
 
-Antes de começar, garanta que os seguintes sistemas estejam instalados em seu computador.
+   Antes de começar, garanta que os seguintes sistemas estejam instalados em seu computador.
 
 - [git](https://git-scm.com/) (estou usando a versão -`2.39.1` )
 - [Node.js](https://nodejs.org/en - `v18.14.0`)
