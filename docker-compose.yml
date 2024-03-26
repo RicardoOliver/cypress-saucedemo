@@ -1,0 +1,41 @@
+version: '3.3'
+services:
+  cypress-test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: teste-cypress:latest
+    container_name: teste-${TEST_TYPE}-${MODE}
+    env_file: .env
+    environment:
+      - PROJECT_NAME
+      - TEST_TYPE
+      - FEATURE
+      - TAG
+      - DEVICE
+      - BROWSER
+      - MODE
+      - DOWNLOAD_PATH
+      - RELEASE
+    command: npm run teste:${DEVICE}:${TEST_TYPE}:${MODE}
+    working_dir: /app
+    volumes:
+      - ./cypress/test-results:/app/cypress/test-results
+      - ./cypress/test-results/cucumber-json:/app/cypress/test-results/cucumber-json
+      - ./cypress/screenshots:/app/cypress/screenshots
+      - ./cypress/videos:/app/cypress/videos
+      - ./coverage:/app/coverage/
+      - .env:/app/.env
+  teste-report-html:
+    image: teste-cypress:latest
+    container_name: teste-html-report
+    env_file: .env
+    command: npm run report:html
+    working_dir: /app
+    volumes:
+      - ./cypress/test-results:/app/cypress/test-results
+      - ./cypress/test-results/cucumber-json:/app/cypress/test-results/cucumber-json
+      - ./cypress/screenshots:/app/cypress/screenshots
+      - ./cypress/videos:/app/cypress/videos
+      - ./coverage:/app/coverage/
+      - .env:/app/.env
