@@ -1,23 +1,194 @@
-name: End-to-end tests
+name: Test Paralel CD
+
 on:
-    push:
-      branches:
-        main
+  workflow_dispatch: # Aqui podemos inserir vários inputs caso seja necessário. No caso de teste do workflow inserimos alguns para diferenciar os projetos.
+                     # Caso seja necessário, fique atento a algumas mudanças que devem ser feitas durante o workflow
+
+env:
+   SPLIT: ${{ strategy.job-total }}
+   SPLIT_INDEX: ${{ strategy.job-index }}
+
 jobs:
-  cypress-run:
-    runs-on: ubuntu-22.04
-    strategy:
-      fail-fast: true
-      matrix:
-        containers: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+  generate-tokens:
+    name: Generate Tokens
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      # Install npm dependencies, cache them correctly
-      # and run all Cypress tests
-      - name: Cypress run
-        uses: cypress-io/github-action@v6
-        # pass the machine index and the total number
+      - uses: actions/checkout@v3
+      - name: Generate tokens
+        run: |
+          env | grep '_USER\|_PWD\|_OTP\|BASEURL\|AUTH' > .env
+          docker-compose -f 'docker-compose.yml' up --build cypress-test
         env:
-          SPLIT: ${{ strategy.job-total }}
-          SPLIT_INDEX: ${{ strategy.job-index }}
+           SPLIT: ${{ strategy.job-total }}
+           SPLIT_INDEX: ${{ strategy.job-index }}
+
+      # Caso seja necessário criar tokens diferentes para diferentes tipos de navegadores, 
+      # como foi o caso do teste pode replicar esse step Generate tokens alterando envs.
+  
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: authToken
+          path: cypress/auth-token/
+
+  generate-scenarios:
+    name: Generate Scenarios
+    runs-on: ubuntu-latest
+    needs: generate-tokens
+    outputs:
+      tags: ${{ steps.output-tags.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Generate cucumber tags
+        id: output-tags
+        run: |
+          tags=()
+          for file in cypress/e2e/*.feature; do
+              firstLine=$(head -n 1 "$file" | sed 's/^@//')
+              tags+=("$firstLine")
+          done
+
+          formatted_tags=$(printf '"%s",\n' "${tags[@]}" | tr -d '\n')
+          formatted_tags="[$formatted_tags]"
+          echo "$formatted_tags"
+
+          echo ::set-output name=tags::$formatted_tags
+        
+        # Caso tenha mais que um projeto automatizado, é possível fazer alguma lógica para acessar o diretório do projeto selecionado.
+
+  test-prod-parallel:
+    continue-on-error: false
+    runs-on: ubuntu-latest
+    needs: generate-scenarios
+    strategy:
+        fail-fast: false
+        matrix:
+          name: ["chrome","firefox"]
+          tags: ${{ fromJSON(needs.generate-scenarios.outputs.tags) }}
+    name: ${{ matrix.tags }} - ${{ matrix.name }}
+    env:
+       SPLIT: ${{ strategy.job-total }}
+       SPLIT_INDEX: ${{ strategy.job-index }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: authToken
+          path: cypress/auth-token/
+
+      - name: Run Regression tests - ${{matrix.name}} Headless
+        run: |
+          env | grep '_USER\|_PWD\|_OTP\|BASEURL\|AUTH' > .env
+          docker-compose -f 'docker-compose.yml' up --build cypress-test
+        env:
+           SPLIT: ${{ strategy.job-total }}
+           SPLIT_INDEX: ${{ strategy.job-index }}
+
+      - name: Upload test-results artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: test_results_${{ matrix.tags }}_${{matrix.name}}
+          path: cypress/test-results/cucumber-json/
+
+      - name: Upload screenshot artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: screenshots_${{ matrix.tags }}_${{matrix.name}}
+          path: cypress/screenshots/
+      
+      - name: Generate Log
+        id: log
+        run: |
+          docker-compose -f "docker-compose.yml" logs -f >> cypress-test.log
+          echo "test-result=$(grep -oh -m 1 'AssertionError\|CypressError\|failing\|Error:' cypress-test.log)">> $GITHUB_OUTPUT
+     
+      - name: Test Result - FAILED
+        if: contains(steps.log.outputs.test-result, 'Error') || contains(steps.log.outputs.test-result, 'failing')
+        uses: actions/github-script@v6
+        with:
+          script: |
+              core.setFailed('Test Result: FAILED')
+
+      - name: Test Result - PASSED
+        if: "!contains(steps.log.outputs.test-result, 'Error') || !contains(steps.log.outputs.test-result, 'failing')"
+        run: |
+          echo "Test Result: PASSED"
+      
+  generate-html:
+    continue-on-error: true
+    name: Generate HTML Report
+    runs-on: ubuntu-latest
+    if: always()
+    needs: test-prod-parallel
+    strategy:
+        fail-fast: false
+        matrix:
+          name: ["chrome","firefox"]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: make dir
+        run: |
+          mkdir cypress/screenshot
+          mkdir -p cypress/test-results/cucumber-json
+          mkdir -p cypress/download-results
+
+      - name: Download results artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: cypress/download-results
+        continue-on-error: true
+
+      - name: Node 18
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: move files
+        run: |
+          mkdir -p cypress/screenshots
+          mkdir -p cypress/test-results/cucumber-json
+          for folder in cypress/download-results/*; do
+            for file in "$folder"/*; do
+              if [[ "$folder" == *${{ matrix.name }}* && $file == *.cucumber.json ]]; then
+                echo "Moving $file to cypress/test-results/cucumber-json/"
+                mv "$file" cypress/test-results/cucumber-json/
+              elif [[ "$folder" == *screenshots* && "$folder" == *${{ matrix.name }} ]]; then
+                mv "$file" cypress/screenshots/
+                echo "Moving $file to cypress/screenshots/"
+              fi
+            done
+          done
+      
+      - name: Generate HTML Report
+        run: |
+          env | grep '_USER\|_PWD\|_OTP\|BASEURL\|AUTH' > .env
+          rm -rf node_modules
+          rm package-lock.json
+          npm cache clean --force
+          npm install multiple-cucumber-html-reporter@1.19.0 fs-extra@10.1.0 path@0.12.7 chalk@4.1.2 dotenv@8.6.0 node-fetch@2.6.7
+          npm run report:html -- --debug
+        env:
+           SPLIT: ${{ strategy.job-total }}
+           SPLIT_INDEX: ${{ strategy.job-index }}
+
+      - name: Storage HTML Report
+        uses: actions/upload-artifact@v3
+        with: 
+          name: ${{ github.event.inputs.squadProject }} - ${{ matrix.name }}
+          path: cypress/test-results/
+      
+      # Este passo não é realmente necessário, apenas utilize caso tenha mais de um projeto automatizado 
+      # e deseja postar em um caminho diferente no gh pages, como foi o caso de teste. Caso precise, coloque a lógica dentro do run como no exemplo
+      - name: Definir destination_dir
+        run: |
+          echo "destination_dir=tests/regression/${{matrix.name}}" >> $GITHUB_ENV
+          
+      - name: Publish Github Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./cypress/test-results/html
+          destination_dir: ${{ env.destination_dir }} # Note que essa variável vem do step anterior, porém pode ser fixo.
