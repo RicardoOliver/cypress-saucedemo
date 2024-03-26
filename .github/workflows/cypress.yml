@@ -1,29 +1,93 @@
-name: Cypress Tests
+name: Test Parallel CD
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
-  cypress:
+  generate-tokens:
+    name: Generate Tokens
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [12.x, 14.x]
-        browser: [chrome, firefox]
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+      - uses: actions/checkout@v3
+      - name: Generate tokens
+        run: |
+          env | grep '_USER\|_PWD\|_OTP\|BASEURL\|AUTH' > .env
+          docker-compose -f 'docker-compose.yml' up --build cypress-test
 
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v2
-        with:
-          node-version: ${{ matrix.node-version }}
+      # Upload artifacts as needed
 
-      - name: Install dependencies
-        run: npm install
+  generate-scenarios:
+    name: Generate Scenarios
+    runs-on: ubuntu-latest
+    outputs:
+      tags: ${{ steps.output-tags.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Generate cucumber tags
+        id: output-tags
+        run: |
+          tags=()
+          for file in cypress/e2e/*.feature; do
+              firstLine=$(head -n 1 "$file" | sed 's/^@//')
+              tags+=("$firstLine")
+          done
 
-      - name: Run Cypress tests
-        run: npm test -- --browser ${{ matrix.browser }}
+          formatted_tags=$(printf '"%s",\n' "${tags[@]}" | tr -d '\n')
+          formatted_tags="[$formatted_tags]"
+          echo "$formatted_tags"
+
+          echo ::set-output name=tags::$formatted_tags
+
+  test-prod-parallel:
+    continue-on-error: false
+    runs-on: ubuntu-latest
+    needs: generate-scenarios
+    strategy:
+      fail-fast: false
+      matrix:
+        name: ["chrome","firefox"]
+        tags: ${{ fromJSON(needs.generate-scenarios.outputs.tags) }}
+    name: ${{ matrix.tags }} - ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        # Download necessary artifacts
+
+      - name: Run Regression tests - ${{matrix.name}} Headless
+        run: |
+          env | grep '_USER\|_PWD\|_OTP\|BASEURL\|AUTH' > .env
+          docker-compose -f 'docker-compose.yml' up --build cypress-test
+
+      # Other steps for test execution and result handling
+
+  generate-html:
+    continue-on-error: true
+    name: Generate HTML Report
+    runs-on: ubuntu-latest
+    if: always()
+    needs: test-prod-parallel
+    strategy:
+      fail-fast: false
+      matrix:
+        name: ["chrome","firefox"]
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 14
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Run HTML report generation
+      run: npm run generate-report
+
+    - name: Upload HTML report
+      uses: actions/upload-artifact@v3
+      with:
+        name: HTML-report-${{ matrix.name }}
+        path: path/to/generated/html/report
