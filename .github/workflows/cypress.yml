@@ -186,7 +186,7 @@ jobs:
           path: cypress/test-results/
       
       # Este passo não é realmente necessário, apenas utilize caso tenha mais de um projeto automatizado 
-      # e deseja postar em um caminho diferente no gh pages, como foi o caso de teste. Caso precise, coloque a lógica dentro do run como no exemplo
+      # e deseja
       - name: Definir destination_dir
         run: |
           echo "destination_dir=tests/regression/${{matrix.name}}" >> $GITHUB_ENV
