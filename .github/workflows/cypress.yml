@@ -3,7 +3,6 @@ name: Test Paralel CD
 on:
   workflow_dispatch: # Aqui podemos inserir vários inputs caso seja necessário. No caso de teste do workflow inserimos alguns para diferenciar os projetos.
                      # Caso seja necessário, fique atento a algumas mudanças que devem ser feitas durante o workflow
-
 env:
    SPLIT: ${{ strategy.job-total }}
    SPLIT_INDEX: ${{ strategy.job-index }}
