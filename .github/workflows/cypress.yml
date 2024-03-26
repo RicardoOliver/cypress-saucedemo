@@ -72,22 +72,22 @@ jobs:
       matrix:
         name: ["chrome","firefox"]
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: 14
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 14
 
-    - name: Install dependencies
-      run: npm install
+      - name: Install dependencies
+        run: npm install
 
-    - name: Run HTML report generation
-      run: npm run generate-report
+      - name: Run HTML report generation
+        run: npm run generate-report
 
-    - name: Upload HTML report
-      uses: actions/upload-artifact@v3
-      with:
-        name: HTML-report-${{ matrix.name }}
-        path: path/to/generated/html/report
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v3
+        with:
+          name: HTML-report-${{ matrix.name }}
+          path: path/to/generated/html/report  # Adjust this path to the actual path of your generated HTML report
