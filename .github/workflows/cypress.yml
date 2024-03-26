@@ -1,52 +1,82 @@
-name: Build
+name: Cypress test
 
-on: [push, pull_request]
+on: [push]
 
 jobs:
-  prepare-versions:
-    runs-on: ubuntu-20.04
+  prepare:
+    runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      integration-tests: ${{ steps.parse.outputs.integration-tests }}
+      component-tests: ${{ steps.parse.outputs.component-tests }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
-      - id: set-matrix
-        name: Prepare
-        run: echo "::set-output name=matrix::$(node -p "JSON.stringify(require('./package.json').peerDependencies['cypress'].split(' || '))")"
-      - run: npm -v
+        uses: actions/checkout@v3
 
-  test:
-    needs: prepare-versions
-    runs-on: ubuntu-20.04
-    container:
-      image: cypress/base:14.17.0
-      # Why exactly 1001? See https://github.com/actions/checkout/issues/211 and https://github.com/actions/runner/issues/691.
-      options: --user 1001
+      - name: Build
+        uses: cypress-io/github-action@v5
+        with:
+          runTests: false
+          build: npm run build
+          
+      - name: Save build folder
+        uses: actions/upload-artifact@v3
+        with:
+          name: build
+          if-no-files-found: error
+          path: build
+          retention-days: 1
+
+      - name: Parse test files for parallelization
+        id: parse
+        uses: tgamauf/cypress-parallel@v2
+
+  test-integration:
+    runs-on: ubuntu-latest
+    needs: prepare
     strategy:
+      fail-fast: false
       matrix:
-        cypress-version: ${{fromJson(needs.prepare-versions.outputs.matrix)}}
+        # Run the tests in parallel, each with one of the prepared test specs
+        spec: ${{ fromJson(needs.prepare.outputs.integration-tests) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Cache TypeScript installs
-        uses: actions/cache@v2
+
+      - name: Download the build folders
+        uses: actions/download-artifact@v3
         with:
-          path: ~/.dts
-          key: dts
-      - name: Cache Cypress binaries
-        uses: actions/cache@v2
+          name: build
+          path: build
+          
+      - name: Execute tests
+        uses: cypress-io/github-action@v5
         with:
-          path: ~/.cache/Cypress
-          key: cypress@${{ matrix.cypress-version }}
-      - name: Dependencies (1)
-        run: npm install
-        env:
-          CYPRESS_INSTALL_BINARY: "0"
-      - name: Dependencies (2)
-        run: npm install --no-save cypress@${{ matrix.cypress-version }}
-      - name: Build
-        run: npm run build
-      - name: Test
-        run: npm run test
-      - name: Version
-        run: npx cypress --version
+          # We have already installed all dependencies above
+          install: false
+          # Use the spec provided to this worker to execute the test 
+          spec: ${{ matrix.spec }}
+
+  test-component:
+    runs-on: ubuntu-latest
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        spec: ${{ fromJson(needs.prepare.outputs.component-tests) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Download the build folders
+        uses: actions/download-artifact@v3
+        with:
+          name: build
+          path: build
+          
+      - name: Execute tests
+        uses: cypress-io/github-action@v5
+        with:
+          install: false
+          # To run component tests we need to use "cypress run-ct"
+          command: npx cypress run-ct
+          spec: ${{ matrix.spec }}
